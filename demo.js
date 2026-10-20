@@ -187,13 +187,17 @@ function puertaJefe_(c) {
     // Si alguien pierde su código, se le da otro (el viejo deja de valer).
     if (!buscarFila_('Equipo', c.id)) return { ok: false, error: 'no-existe' };
     extra = { codigo: conCerrojo_(() => darCodigo_(c.id)) };
+  } else if (c.accion === 'aviso') {
+    // Un aviso fijo que el equipo ve arriba al entrar (vacío = sin aviso)
+    const texto = String(c.texto || '').trim().slice(0, 500).replace(/^[=+\-@]+/, '');
+    PropertiesService.getScriptProperties().setProperty('AVISO_EQUIPO', texto);
   } else if (c.accion && c.accion !== 'datos') {
     return { ok: false, error: 'accion' };
   }
   const datos = {};
   Object.keys(TABLAS).forEach((t) => { datos[t] = leer_(t).map(sinInterno_); });
   datos.Encuestas.forEach((x) => { x.respuestas = contarRespuestas_(x.hoja); });
-  return Object.assign({ ok: true, quien: 'jefe', datos: datos, ahora: Date.now() }, extra);
+  return Object.assign({ ok: true, quien: 'jefe', datos: datos, aviso: aviso_(), ahora: Date.now() }, extra);
 }
 
 // ---------- Equipo ----------
@@ -215,7 +219,11 @@ function puertaEquipo_(persona, c) {
   const mias = leer_('Tareas').filter((t) => t.para === persona.id && !t.quitado)
     .map((t) => ({ id: t.id, titulo: t.titulo, porque: t.porque, como: t.como, idea: t.idea, prioridad: t.prioridad,
                    estado: t.estado || 'pendiente', para_cuando: t.para_cuando, hecha_el: t.hecha_el, comentario: t.comentario }));
-  return { ok: true, quien: 'equipo', nombre: persona.nombre, tareas: mias, ahora: Date.now() };
+  return { ok: true, quien: 'equipo', nombre: persona.nombre, tareas: mias, aviso: aviso_(), ahora: Date.now() };
+}
+
+function aviso_() {
+  return PropertiesService.getScriptProperties().getProperty('AVISO_EQUIPO') || '';
 }
 
 // ---------- La hoja ----------

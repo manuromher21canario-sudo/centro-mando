@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
+<meta name="theme-color" content="#23314D">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mando">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icono-32.png">
+<link rel="apple-touch-icon" href="icono-180.png">
 <title>Centro de mando</title>
 <style>
   :root {
@@ -119,6 +125,12 @@
   .mision .botones { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .mision.hecha { opacity: .7; }
   .demo { background: var(--ambar-claro); color: #8A5A0E; text-align: center; padding: 8px 12px; font-size: 14px; }
+  .chip.atrasada { background: var(--rojo); color: #fff; }
+  .rapido { position: fixed; right: 20px; bottom: 20px; width: 58px; height: 58px; border-radius: 50%; background: var(--ambar); color: #fff; font-size: 30px; font-weight: 700; box-shadow: 0 6px 20px rgba(0,0,0,.25); z-index: 8; }
+  .rapido-tipos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tablon { background: var(--ambar-claro); border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; line-height: 1.5; white-space: pre-line; }
+  .tablon b { display: block; font-size: 13px; color: #8A5A0E; }
+  .instalar { background: var(--ambar); color: #fff; }
 
   @media (max-width: 760px) {
     .app { grid-template-columns: 1fr; }
@@ -159,6 +171,7 @@
 <section id="jefe" class="app oculto">
   <nav class="menu" id="menu"></nav>
   <main id="contenido"></main>
+  <button class="rapido" id="rapido" title="Apuntar rápido" aria-label="Apuntar rápido">＋</button>
 </section>
 
 <!-- Equipo -->
@@ -242,7 +255,7 @@ function salir() {
 }
 function recibir(r) {
   $("#entrada").classList.add("oculto");
-  if (r.quien === "jefe") { datos = r.datos; $("#jefe").classList.remove("oculto"); pintarJefe(); }
+  if (r.quien === "jefe") { datos = r.datos; avisoEquipo = r.aviso || ""; $("#jefe").classList.remove("oculto"); pintarJefe(); }
   else { equipoDatos = r; $("#equipo").classList.remove("oculto"); pintarEquipo(); }
 }
 
@@ -262,7 +275,7 @@ function avisar(texto, deshacer) {
 // =====================================================================
 // JEFE
 // =====================================================================
-let datos = null, apartado = "inicio", subpestana = {};
+let datos = null, apartado = "inicio", subpestana = {}, avisoEquipo = "";
 const APARTADOS = [
   ["inicio", "🏠", "Inicio"], ["tareas", "✅", "Tareas"], ["equipo", "👥", "Equipo"], ["dinero", "💶", "Dinero"],
   ["clientes", "🤝", "Clientes"], ["ideas", "💡", "Ideas"], ["encuestas", "📋", "Encuestas"], ["talleres", "🛠️", "Talleres"]
@@ -304,13 +317,14 @@ function pintarJefe() {
   $("#menu").innerHTML = '<div class="marca">🧭 Centro de mando<small>Emmanuel · jefe</small></div>' +
     APARTADOS.map(([id, ico, nom]) => '<button data-ir="' + id + '" class="' + (apartado === id ? "activa" : "") + '">' + ico + " " + nom +
       (id === "tareas" && pendientes ? '<span class="num">' + pendientes + "</span>" : "") + "</button>").join("") +
-    '<button class="salir" data-salir>🚪 Salir</button>';
+    botonInstalar() + '<button class="salir" data-salir>🚪 Salir</button>';
   const pintor = { inicio: pInicio, tareas: pTareas, equipo: pEquipo, dinero: pDinero, clientes: pClientes, ideas: pIdeas, encuestas: pEncuestas, talleres: pTalleres }[apartado];
   $("#contenido").innerHTML = pintor();
 }
 $("#menu").onclick = (e) => {
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.salir !== undefined) return salir();
+  if (b.dataset.instalar !== undefined) return instalarApp();
   apartado = b.dataset.ir; pintarJefe(); window.scrollTo(0, 0);
 };
 
@@ -353,10 +367,13 @@ function pInicio() {
   const equipo = vivos("Equipo");
   const saludo = new Date().getHours() < 14 ? "Buenos días" : new Date().getHours() < 21 ? "Buenas tardes" : "Buenas noches";
 
+  const semana = pend.filter((t) => t.para_cuando && String(t.para_cuando) <= dentroDe(7)).sort((a, b) => String(a.para_cuando).localeCompare(String(b.para_cuando)));
   return cabecera(saludo + ", jefe 👑", "", new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })) +
   '<div class="rejilla">' +
     '<div class="tarjeta ancha"><h3>🎯 Te toca a ti</h3>' + (mias.length ? '<div class="lista">' + mias.slice(0, 5).map(itemTarea).join("") + "</div>" + (mias.length > 5 ? '<p>…y ' + (mias.length - 5) + " más en Tareas.</p>" : "")
       : '<p>No tienes nada pendiente. ¡Bien! 🎉</p>') + "</div>" +
+    (semana.length ? '<div class="tarjeta ancha"><h3>📅 Esta semana' + (semana.some(atrasada) ? ' <span class="chip atrasada">' + semana.filter(atrasada).length + " atrasada" + (semana.filter(atrasada).length === 1 ? "" : "s") + "</span>" : "") +
+      '</h3><div class="lista">' + semana.map(itemTarea).join("") + "</div></div>" : "") +
     '<div class="tarjeta clic" data-ir-a="dinero"><h3>💶 Dinero de este mes</h3>' + tresCifras(c.mes) + "<p>Desde el principio te quedan " + euros(c.todo.i - c.todo.g) + ".</p></div>" +
     '<div class="tarjeta clic" data-ir-a="clientes"><h3>🤝 Clientes</h3><div class="grande">' + (deVerdad(serv) + deVerdad(apps)) + ' <small>de verdad</small></div><p>Servicios: ' + serv.length + " (" + deVerdad(serv) + " clientes) · Apps: " + apps.length + " (" + deVerdad(apps) + " clientes)<br>" +
       cli.filter((x) => x.estado === "hablando").length + " con los que estás hablando.</p></div>" +
@@ -372,13 +389,15 @@ function pInicio() {
 $("#contenido").addEventListener("click", (e) => { const t = e.target.closest("[data-ir-a]"); if (t && !e.target.closest("button")) { apartado = t.dataset.irA; pintarJefe(); window.scrollTo(0, 0); } });
 
 // ---------- ✅ Tareas ----------
+const atrasada = (t) => t.estado !== "hecha" && t.para_cuando && String(t.para_cuando) < hoyTexto();
+const dentroDe = (dias) => { const d = new Date(); d.setDate(d.getDate() + dias); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 function itemTarea(t) {
   const hecha = t.estado === "hecha";
   const detalle = [nombreDe(t.para), t.idea, t.para_cuando ? "para el " + fechaCorta(new Date(t.para_cuando + "T12:00").getTime()) : "", hecha && t.hecha_el ? "hecha " + haceCuanto(t.hecha_el) : ""].filter(Boolean).join(" · ");
   return '<div class="item' + (t.quitado ? " quitado" : "") + '">' +
     (t.quitado ? "" : '<button class="marca-check' + (hecha ? " si" : "") + '" data-marcar="' + t.id + '" title="' + (hecha ? "Marcar como pendiente" : "Marcar como hecha") + '" aria-label="Hecha">' + (hecha ? "✓" : "") + "</button>") +
     '<div class="cuerpo"><div class="titulo"' + (hecha ? ' style="text-decoration:line-through;color:var(--gris)"' : "") + ">" + esc(t.titulo) + "</div>" +
-    '<div class="detalle">' + (t.prioridad ? '<span class="chip ' + t.prioridad + '">' + t.prioridad + "</span>" : "") + (t.estado === "en curso" ? '<span class="chip ambar">en curso</span>' : "") + esc(detalle) + "</div>" +
+    '<div class="detalle">' + (atrasada(t) ? '<span class="chip atrasada">atrasada</span>' : "") + (t.prioridad ? '<span class="chip ' + t.prioridad + '">' + t.prioridad + "</span>" : "") + (t.estado === "en curso" ? '<span class="chip ambar">en curso</span>' : "") + esc(detalle) + "</div>" +
     (t.comentario ? '<div class="detalle">💬 «' + esc(t.comentario) + "»</div>" : "") + "</div>" + botonesItem("Tareas", t) + "</div>";
 }
 function pTareas() {
@@ -406,6 +425,8 @@ function itemPersona(p) {
 function pEquipo() {
   const gente = vivos("Equipo");
   return cabecera("👥 Equipo", botonNuevo("Equipo", "Añadir a alguien"), "Cada persona entra en esta misma web con «Soy del equipo» y su código de 6 cifras. Solo ve sus tareas: nada de dinero, clientes ni ideas.") +
+    '<form class="tarjeta" id="form-aviso" style="margin-bottom:14px"><h3>📌 Aviso para el equipo</h3><p style="margin:0 0 8px">Lo verán arriba del todo al entrar. Déjalo vacío para quitarlo.</p>' +
+    '<label class="campo"><textarea name="aviso" placeholder="Ej.: ¡Gracias por lo de ayer! Este finde toca repartir encuestas.">' + esc(avisoEquipo) + '</textarea></label><button class="secundario" type="submit">Guardar aviso</button></form>' +
     (gente.length ? '<div class="lista">' + gente.map(itemPersona).join("") + "</div>" : '<div class="vacio">Todavía no hay nadie. Añade a tu amigo y te dará su código para pasárselo.</div>') + bloqueQuitados("Equipo", itemPersona);
 }
 
@@ -499,11 +520,16 @@ function guardarEnCerebro(peticion, textoBien, deshacer) {
   return llamar(peticion).then((r) => {
     $("#contenido").classList.remove("cargando");
     if (!r.ok) { avisar(textoError(r.error)); return r; }
-    datos = r.datos; pintarJefe();
+    datos = r.datos; avisoEquipo = r.aviso || ""; pintarJefe();
     if (textoBien) avisar(textoBien, deshacer ? () => deshacer(r) : null);
     return r;
   }).catch(() => { $("#contenido").classList.remove("cargando"); avisar(ERRORES.red); return { ok: false }; });
 }
+$("#contenido").addEventListener("submit", (e) => {
+  if (e.target.id !== "form-aviso") return;
+  e.preventDefault();
+  guardarEnCerebro({ accion: "aviso", texto: e.target.elements.aviso.value }, "Aviso guardado ✓");
+});
 $("#contenido").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
   const d = b.dataset;
@@ -562,7 +588,7 @@ function abrirFormulario(tabla, item, valores) {
     llamar({ accion: "guardar", tabla: tabla, id: item ? item.id : undefined, campos: c }).then((r) => {
       form.classList.remove("cargando");
       if (!r.ok) { $("#error-form").textContent = textoError(r.error); return; }
-      velo.remove(); datos = r.datos; pintarJefe();
+      velo.remove(); datos = r.datos; avisoEquipo = r.aviso || ""; pintarJefe();
       if (r.codigo) mostrarCodigo(c.nombre, r.codigo); else avisar("Guardado ✓");
     }).catch(() => { form.classList.remove("cargando"); $("#error-form").textContent = ERRORES.red; });
   };
@@ -589,9 +615,10 @@ function pintarEquipo() {
   const r = equipoDatos, orden = { principal: 0, secundaria: 1, terciaria: 2 };
   const pend = r.tareas.filter((t) => t.estado !== "hecha").sort((a, b) => (orden[a.prioridad] ?? 3) - (orden[b.prioridad] ?? 3));
   const hechas = r.tareas.filter((t) => t.estado === "hecha");
-  $("#equipo").innerHTML = '<div class="hola"><h1>Hola, ' + esc(r.nombre) + ' 👋</h1><p>' + (pend.length ? "Tienes " + pend.length + (pend.length === 1 ? " tarea" : " tareas") + ". Empieza por la de arriba. Cuando acabes, pulsa «✅ Hecha» y cuéntale a Emmanuel lo que has visto." : "No tienes tareas pendientes. ¡Gracias! 🙌") + "</p></div>" +
+  $("#equipo").innerHTML = (r.aviso ? '<div class="tablon"><b>📌 Aviso de Emmanuel</b>' + esc(r.aviso) + "</div>" : "") +
+    '<div class="hola"><h1>Hola, ' + esc(r.nombre) + ' 👋</h1><p>' + (pend.length ? "Tienes " + pend.length + (pend.length === 1 ? " tarea" : " tareas") + ". Empieza por la de arriba. Cuando acabes, pulsa «✅ Hecha» y cuéntale a Emmanuel lo que has visto." : "No tienes tareas pendientes. ¡Gracias! 🙌") + "</p></div>" +
     pend.map(mision).join("") + (hechas.length ? '<h3 style="margin:20px 4px 10px;color:var(--gris)">Hechas (' + hechas.length + ")</h3>" + hechas.map(mision).join("") : "") +
-    '<button class="enlace" data-salir>🚪 Salir</button>';
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' + botonInstalar("secundario instalar") + '<button class="enlace" data-salir>🚪 Salir</button></div>';
 }
 function mision(t) {
   const hecha = t.estado === "hecha";
@@ -616,6 +643,7 @@ $("#equipo").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
   const d = b.dataset;
   if (d.salir !== undefined) return salir();
+  if (d.instalar !== undefined) return instalarApp();
   if (d.empezar) return accionEquipo({ accion: "empezar", id: d.empezar }, "¡A por ella! 💪");
   if (d.deshacer) return accionEquipo({ accion: "deshacer", id: d.deshacer }, "Vuelve a estar pendiente.");
   if (d.hecha) {
@@ -633,6 +661,45 @@ $("#equipo").addEventListener("click", (e) => {
     };
   }
 });
+
+// ---------- ＋ Apuntar rápido ----------
+$("#rapido").onclick = () => {
+  const velo = document.createElement("div");
+  velo.className = "velo";
+  velo.innerHTML = '<form class="ventana"><h2>＋ Apuntar rápido</h2><label class="campo"><b>¿Qué se te ha ocurrido?</b><input name="texto" autocomplete="off" placeholder="Ej.: llamar a la ferretería del barrio"></label>' +
+    '<div class="rapido-tipos"><button class="principal" data-tipo="Tareas">✅ Es una tarea</button><button class="principal" data-tipo="Ideas">💡 Es una idea</button></div>' +
+    '<div class="error" id="error-rapido"></div><button type="button" class="enlace" data-cerrar>Cancelar</button></form>';
+  document.body.appendChild(velo);
+  const form = velo.querySelector("form"), input = form.elements.texto;
+  input.focus();
+  velo.querySelector("[data-cerrar]").onclick = () => velo.remove();
+  velo.onclick = (e) => { if (e.target === velo) velo.remove(); };
+  form.onsubmit = (e) => { e.preventDefault(); form.querySelector('[data-tipo="Tareas"]').click(); };
+  form.querySelectorAll("[data-tipo]").forEach((b) => b.onclick = (e) => {
+    e.preventDefault();
+    const texto = input.value.trim();
+    if (!texto) { $("#error-rapido").textContent = "Escribe algo primero."; return; }
+    const tabla = b.dataset.tipo;
+    const campos = tabla === "Tareas" ? { titulo: texto, para: "jefe" } : { nombre: texto, paso: "idea" };
+    velo.remove();
+    guardarEnCerebro({ accion: "guardar", tabla: tabla, campos: campos }, tabla === "Tareas" ? "Tarea apuntada ✓" : "Idea apuntada 💡");
+  });
+};
+
+// ---------- 📲 Instalar como app ----------
+let avisoInstalar = null;
+const esIphone = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const yaInstalada = () => (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); avisoInstalar = e; if (datos) pintarJefe(); else if (equipoDatos) pintarEquipo(); });
+function botonInstalar(clase) {
+  if (yaInstalada() || (!avisoInstalar && !esIphone)) return "";
+  return '<button class="' + (clase || "") + '" data-instalar>📲 Instalar app</button>';
+}
+function instalarApp() {
+  if (avisoInstalar) { avisoInstalar.prompt(); avisoInstalar.userChoice.finally(() => { avisoInstalar = null; if (datos) pintarJefe(); else if (equipoDatos) pintarEquipo(); }); return; }
+  avisar("En iPhone: pulsa Compartir ⬆️ y luego «Añadir a pantalla de inicio».");
+}
+if ("serviceWorker" in navigator && location.protocol === "https:" && !MODO_DEMO) navigator.serviceWorker.register("sw.js").catch(() => {});
 
 // ---------- Arranque ----------
 if (MODO_DEMO) $("#demo").classList.remove("oculto");
