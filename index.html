@@ -222,7 +222,7 @@ function llamar(extra) {
 const ERRORES = {
   clave: "Esa contraseña no es.", codigo: "Ese código no es. Pídele uno nuevo a Emmanuel.",
   bloqueado: "Demasiados intentos. Espera 15 minutos.", "sin-clave": "Todavía no hay contraseña puesta en Google (mira la guía).",
-  red: "No hay conexión con Google. Prueba otra vez.", "no-existe": "Eso ya no existe (¿lo quitaron?).", accion: "Eso no se puede hacer desde aquí."
+  red: "No hay conexión con Google. Prueba otra vez.", correo: "Ese correo no parece bien escrito.", "no-existe": "Eso ya no existe (¿lo quitaron?).", accion: "Eso no se puede hacer desde aquí."
 };
 const textoError = (e) => {
   e = String(e || "");
@@ -268,7 +268,7 @@ function salir() {
 }
 function recibir(r) {
   $("#entrada").classList.add("oculto");
-  if (r.quien === "jefe") { datos = r.datos; avisoEquipo = r.aviso || ""; $("#jefe").classList.remove("oculto"); pintarJefe(); }
+  if (r.quien === "jefe") { datos = r.datos; avisoEquipo = r.aviso || ""; correoAvisos = r.correo || ""; $("#jefe").classList.remove("oculto"); pintarJefe(); }
   else { equipoDatos = r; $("#equipo").classList.remove("oculto"); pintarEquipo(); }
 }
 
@@ -288,7 +288,7 @@ function avisar(texto, deshacer) {
 // =====================================================================
 // JEFE
 // =====================================================================
-let datos = null, apartado = "inicio", subpestana = {}, avisoEquipo = "";
+let datos = null, apartado = "inicio", subpestana = {}, avisoEquipo = "", correoAvisos = "";
 const APARTADOS = [
   ["inicio", "🏠", "Inicio"], ["tareas", "✅", "Tareas"], ["equipo", "👥", "Equipo"], ["dinero", "💶", "Dinero"],
   ["clientes", "🤝", "Clientes"], ["ideas", "💡", "Ideas"], ["encuestas", "📋", "Encuestas"], ["talleres", "🛠️", "Talleres"]
@@ -440,6 +440,8 @@ function pEquipo() {
   return cabecera("👥 Equipo", botonNuevo("Equipo", "Añadir a alguien"), "Cada persona entra en esta misma web con «Soy del equipo» y su código de 6 cifras. Solo ve sus tareas: nada de dinero, clientes ni ideas.") +
     '<form class="tarjeta" id="form-aviso" style="margin-bottom:14px"><h3>📌 Aviso para el equipo</h3><p style="margin:0 0 8px">Lo verán arriba del todo al entrar. Déjalo vacío para quitarlo.</p>' +
     '<label class="campo"><textarea name="aviso" placeholder="Ej.: ¡Gracias por lo de ayer! Este finde toca repartir encuestas.">' + esc(avisoEquipo) + '</textarea></label><button class="secundario" type="submit">Guardar aviso</button></form>' +
+    '<form class="tarjeta" id="form-correo" style="margin-bottom:14px"><h3>✉️ Avisos por correo</h3><p style="margin:0 0 8px">Te llega un correo cuando alguien termina una tarea, y cada lunes a las 8 un resumen de la semana.</p>' +
+    '<label class="campo"><b>Mandarlos a</b><input name="correo" type="email" value="' + esc(correoAvisos) + '" placeholder="tu correo"></label><button class="secundario" type="submit">Guardar correo</button></form>' +
     (gente.length ? '<div class="lista">' + gente.map(itemPersona).join("") + "</div>" : '<div class="vacio">Todavía no hay nadie. Añade a tu amigo y te dará su código para pasárselo.</div>') + bloqueQuitados("Equipo", itemPersona);
 }
 
@@ -533,12 +535,13 @@ function guardarEnCerebro(peticion, textoBien, deshacer) {
   return llamar(peticion).then((r) => {
     $("#contenido").classList.remove("cargando");
     if (!r.ok) { avisar(textoError(r.error)); return r; }
-    datos = r.datos; avisoEquipo = r.aviso || ""; pintarJefe();
+    datos = r.datos; avisoEquipo = r.aviso || ""; correoAvisos = r.correo || ""; pintarJefe();
     if (textoBien) avisar(textoBien, deshacer ? () => deshacer(r) : null);
     return r;
   }).catch(() => { $("#contenido").classList.remove("cargando"); avisar(ERRORES.red); return { ok: false }; });
 }
 $("#contenido").addEventListener("submit", (e) => {
+  if (e.target.id === "form-correo") { e.preventDefault(); return guardarEnCerebro({ accion: "correo", correo: e.target.elements.correo.value }, "Correo guardado ✓"); }
   if (e.target.id !== "form-aviso") return;
   e.preventDefault();
   guardarEnCerebro({ accion: "aviso", texto: e.target.elements.aviso.value }, "Aviso guardado ✓");
@@ -601,7 +604,7 @@ function abrirFormulario(tabla, item, valores) {
     llamar({ accion: "guardar", tabla: tabla, id: item ? item.id : undefined, campos: c }).then((r) => {
       form.classList.remove("cargando");
       if (!r.ok) { $("#error-form").textContent = textoError(r.error); return; }
-      velo.remove(); datos = r.datos; avisoEquipo = r.aviso || ""; pintarJefe();
+      velo.remove(); datos = r.datos; avisoEquipo = r.aviso || ""; correoAvisos = r.correo || ""; pintarJefe();
       if (r.codigo) mostrarCodigo(c.nombre, r.codigo); else avisar("Guardado ✓");
     }).catch(() => { form.classList.remove("cargando"); $("#error-form").textContent = ERRORES.red; });
   };

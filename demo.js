@@ -187,6 +187,10 @@ function puertaJefe_(c) {
     // Si alguien pierde su código, se le da otro (el viejo deja de valer).
     if (!buscarFila_('Equipo', c.id)) return { ok: false, error: 'no-existe' };
     extra = { codigo: conCerrojo_(() => darCodigo_(c.id)) };
+  } else if (c.accion === 'correo') {
+    const correo = String(c.correo || '').trim().slice(0, 100);
+    if (correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return { ok: false, error: 'correo' };
+    PropertiesService.getScriptProperties().setProperty('CORREO', correo);
   } else if (c.accion === 'aviso') {
     // Un aviso fijo que el equipo ve arriba al entrar (vacío = sin aviso)
     const texto = String(c.texto || '').trim().slice(0, 500).replace(/^[=+\-@]+/, '');
@@ -197,7 +201,7 @@ function puertaJefe_(c) {
   const datos = {};
   Object.keys(TABLAS).forEach((t) => { datos[t] = leer_(t).map(sinInterno_); });
   datos.Encuestas.forEach((x) => { x.respuestas = contarRespuestas_(x.hoja); });
-  return Object.assign({ ok: true, quien: 'jefe', datos: datos, aviso: aviso_(), ahora: Date.now() }, extra);
+  return Object.assign({ ok: true, quien: 'jefe', datos: datos, aviso: aviso_(), correo: correoJefe_(), ahora: Date.now() }, extra);
 }
 
 // ---------- Equipo ----------
@@ -212,6 +216,11 @@ function puertaEquipo_(persona, c) {
     if (c.comentario !== undefined) campos.comentario = c.comentario;
     const r = conCerrojo_(() => guardar_('Tareas', c.id, campos, true));
     if (r.error) return { ok: false, error: r.error };
+    if (c.accion === 'hecha') {
+      mandarCorreo_('✅ ' + persona.nombre + ' ha terminado: ' + tarea.titulo,
+        persona.nombre + ' ha marcado como hecha la tarea «' + tarea.titulo + '».\n\n' +
+        (c.comentario ? 'Lo que ha contado:\n«' + String(c.comentario).slice(0, 1000) + '»\n\n' : 'No ha dejado comentario.\n\n') + 'Centro de mando: ' + WEB);
+    }
   } else if (c.accion && c.accion !== 'datos') {
     return { ok: false, error: 'accion' };
   }
@@ -220,6 +229,53 @@ function puertaEquipo_(persona, c) {
     .map((t) => ({ id: t.id, titulo: t.titulo, porque: t.porque, como: t.como, idea: t.idea, prioridad: t.prioridad,
                    estado: t.estado || 'pendiente', para_cuando: t.para_cuando, hecha_el: t.hecha_el, comentario: t.comentario }));
   return { ok: true, quien: 'equipo', nombre: persona.nombre, tareas: mias, aviso: aviso_(), ahora: Date.now() };
+}
+
+// ---------- Correos ----------
+// A quién le llegan los avisos: el correo puesto en el centro de mando o, si no hay, el de la cuenta de Google.
+function correoJefe_() {
+  const puesto = PropertiesService.getScriptProperties().getProperty('CORREO');
+  if (puesto) return puesto;
+  try { return Session.getEffectiveUser().getEmail() || ''; } catch (e) { return ''; }
+}
+
+// Nunca rompe nada: si el correo falla (sin permiso, límite diario…), la tarea se guarda igual.
+function mandarCorreo_(asunto, texto) {
+  const a = correoJefe_();
+  if (!a) return false;
+  try { MailApp.sendEmail(a, asunto, texto, { name: 'Centro de mando' }); return true; } catch (e) { return false; }
+}
+
+// Cada lunes por la mañana (disparador que crea instalar): resumen de la semana.
+function resumenSemanal() {
+  const semana = Date.now() - 7 * 24 * 3600 * 1000;
+  const tareas = leer_('Tareas').filter((t) => !t.quitado);
+  const gente = {};
+  leer_('Equipo').forEach((p) => { gente[p.id] = p.nombre; });
+  const quien = (id) => id === 'jefe' || !id ? 'tú' : (gente[id] || '¿?');
+  const hechas = tareas.filter((t) => t.estado === 'hecha' && t.hecha_el >= semana);
+  const pendientes = tareas.filter((t) => t.estado !== 'hecha');
+  const hoy = hoyTexto_();
+  const atrasadas = pendientes.filter((t) => t.para_cuando && String(t.para_cuando) < hoy);
+  let gano = 0, gasto = 0;
+  leer_('Dinero').filter((m) => !m.quitado && m.creado >= semana).forEach((m) => { if (m.tipo === 'gasto') gasto += Number(m.importe) || 0; else gano += Number(m.importe) || 0; });
+  const respuestas = leer_('Encuestas').filter((e) => !e.quitado).map((e) => '  · ' + e.nombre + ': ' + (contarRespuestas_(e.hoja) === null ? '¿?' : contarRespuestas_(e.hoja)) + (e.meta ? ' de ' + e.meta : ''));
+  const orden = { principal: 0, secundaria: 1, terciaria: 2 };
+  pendientes.sort((a, b) => (orden[a.prioridad] === undefined ? 3 : orden[a.prioridad]) - (orden[b.prioridad] === undefined ? 3 : orden[b.prioridad]));
+  const texto = [
+    '🧭 Tu semana en el centro de mando', '',
+    '✅ Hechas esta semana: ' + hechas.length, ...hechas.map((t) => '  · ' + t.titulo + ' (' + quien(t.para) + ')'), '',
+    '📌 Pendientes: ' + pendientes.length + (atrasadas.length ? ' (' + atrasadas.length + ' atrasadas)' : ''),
+    ...pendientes.slice(0, 8).map((t) => '  · ' + (t.prioridad ? '[' + t.prioridad + '] ' : '') + t.titulo + ' (' + quien(t.para) + ')'), '',
+    '💶 Esta semana: ganado ' + Math.round(gano * 100) / 100 + ' €, gastado ' + Math.round(gasto * 100) / 100 + ' €', '',
+    '📋 Encuestas:', ...respuestas, '', WEB
+  ].join('\n');
+  return mandarCorreo_('🧭 Tu semana: ' + hechas.length + ' hechas, ' + pendientes.length + ' pendientes', texto);
+}
+
+function crearDisparadorSemanal_() {
+  ScriptApp.getProjectTriggers().forEach((t) => { if (t.getHandlerFunction() === 'resumenSemanal') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('resumenSemanal').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(8).create();
 }
 
 function aviso_() {
@@ -379,6 +435,7 @@ function json_(objeto) {
 function instalar() {
   const ss = libro_();
   const cargado = typeof cargarIniciales_ === 'function' && conCerrojo_(cargarIniciales_);
+  crearDisparadorSemanal_();
   Logger.log('Hoja lista: ' + ss.getUrl() + (cargado ? ' (con lo que ya teníamos)' : ''));
 }
 
