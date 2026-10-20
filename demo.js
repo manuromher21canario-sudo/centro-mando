@@ -187,6 +187,11 @@ function puertaJefe_(c) {
     // Si alguien pierde su código, se le da otro (el viejo deja de valer).
     if (!buscarFila_('Equipo', c.id)) return { ok: false, error: 'no-existe' };
     extra = { codigo: conCerrojo_(() => darCodigo_(c.id)) };
+  } else if (c.accion === 'dar-fase') {
+    if (typeof darFase_ !== 'function') return { ok: false, error: 'accion' };
+    const r = conCerrojo_(() => darFase_(c.para, c.fase));
+    if (r.error) return { ok: false, error: r.error };
+    extra = { nuevas: r.nuevas };
   } else if (c.accion === 'correo') {
     const correo = String(c.correo || '').trim().slice(0, 100);
     if (correo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return { ok: false, error: 'correo' };
@@ -201,7 +206,8 @@ function puertaJefe_(c) {
   const datos = {};
   Object.keys(TABLAS).forEach((t) => { datos[t] = leer_(t).map(sinInterno_); });
   datos.Encuestas.forEach((x) => { x.respuestas = contarRespuestas_(x.hoja); });
-  return Object.assign({ ok: true, quien: 'jefe', datos: datos, aviso: aviso_(), correo: correoJefe_(), ahora: Date.now() }, extra);
+  return Object.assign({ ok: true, quien: 'jefe', datos: datos, aviso: aviso_(), correo: correoJefe_(),
+    plan: typeof fasesPlan_ === 'function' ? fasesPlan_() : [], ahora: Date.now() }, extra);
 }
 
 // ---------- Equipo ----------
@@ -437,6 +443,44 @@ function instalar() {
   const cargado = typeof cargarIniciales_ === 'function' && conCerrojo_(cargarIniciales_);
   crearDisparadorSemanal_();
   Logger.log('Hoja lista: ' + ss.getUrl() + (cargado ? ' (con lo que ya teníamos)' : ''));
+}
+
+const PLAN_MANITU = [
+  { fase: 1, nombre: 'Conocer la app', cuando: 'este finde', tareas: [
+    { titulo: 'Prueba el prototipo', prioridad: 'principal', dias: 0, porque: 'Ver si se entiende.', como: '1. Ábrelo.\n2. Úsalo 10 minutos.' },
+    { titulo: 'Explícala con tus palabras', prioridad: 'secundaria', dias: 1, porque: 'Ver si se entiende la idea.', como: 'Escríbelo en 3 frases.' } ] },
+  { fase: 2, nombre: 'Escuchar a la gente', cuando: 'semana 1', tareas: [
+    { titulo: 'Pregunta a 2 personas', prioridad: 'principal', dias: 7, porque: 'Escuchar antes de construir.', como: 'Usa el guion.' } ] }
+];
+// ---- FUNCIONES (construir.py las copia a la prueba con un plan de mentira) ----
+// Le da a una persona del equipo las tareas de una fase (sin repetir las que ya tenga).
+function darFase_(para, fase) {
+  const f = PLAN_MANITU.find((x) => x.fase === Number(fase));
+  if (!f) return { error: 'fase' };
+  if (!buscarFila_('Equipo', para)) return { error: 'no-existe' };
+  const yaTiene = leer_('Tareas').filter((t) => t.para === para && !t.quitado).map((t) => t.titulo);
+  const base = proximoSabado_();
+  let nuevas = 0;
+  f.tareas.forEach((t) => {
+    if (yaTiene.indexOf(t.titulo) !== -1) return;
+    const dia = new Date(base.getTime() + t.dias * 24 * 3600 * 1000);
+    guardar_('Tareas', null, { titulo: t.titulo, porque: t.porque, como: t.como, para: para, idea: 'Manitu', prioridad: t.prioridad,
+      para_cuando: Utilities.formatDate(dia, Session.getScriptTimeZone(), 'yyyy-MM-dd') }, true);
+    nuevas++;
+  });
+  return { nuevas: nuevas };
+}
+
+function proximoSabado_() {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() + ((6 - d.getDay() + 7) % 7));
+  return d;
+}
+
+// Para la web: las fases y qué tareas tiene ya cada persona.
+function fasesPlan_() {
+  return PLAN_MANITU.map((f) => ({ fase: f.fase, nombre: f.nombre, cuando: f.cuando, titulos: f.tareas.map((t) => t.titulo) }));
 }
 
     return { doPost: doPost, guardar_: guardar_, huella_: huella_ };

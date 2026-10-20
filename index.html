@@ -268,7 +268,7 @@ function salir() {
 }
 function recibir(r) {
   $("#entrada").classList.add("oculto");
-  if (r.quien === "jefe") { datos = r.datos; avisoEquipo = r.aviso || ""; correoAvisos = r.correo || ""; $("#jefe").classList.remove("oculto"); pintarJefe(); }
+  if (r.quien === "jefe") { datos = r.datos; avisoEquipo = r.aviso || ""; correoAvisos = r.correo || ""; planFases = r.plan || []; $("#jefe").classList.remove("oculto"); pintarJefe(); }
   else { equipoDatos = r; $("#equipo").classList.remove("oculto"); pintarEquipo(); }
 }
 
@@ -288,7 +288,7 @@ function avisar(texto, deshacer) {
 // =====================================================================
 // JEFE
 // =====================================================================
-let datos = null, apartado = "inicio", subpestana = {}, avisoEquipo = "", correoAvisos = "";
+let datos = null, apartado = "inicio", subpestana = {}, avisoEquipo = "", correoAvisos = "", planFases = [];
 const APARTADOS = [
   ["inicio", "🏠", "Inicio"], ["tareas", "✅", "Tareas"], ["equipo", "👥", "Equipo"], ["dinero", "💶", "Dinero"],
   ["clientes", "🤝", "Clientes"], ["ideas", "💡", "Ideas"], ["encuestas", "📋", "Encuestas"], ["talleres", "🛠️", "Talleres"]
@@ -433,7 +433,7 @@ function itemPersona(p) {
   const suyas = vivos("Tareas").filter((t) => t.para === p.id), hechas = suyas.filter((t) => t.estado === "hecha").length;
   return '<div class="item' + (p.quitado ? " quitado" : "") + '"><div class="marca-check">🧑‍🔧</div><div class="cuerpo"><div class="titulo">' + esc(p.nombre) + "</div>" +
     '<div class="detalle">' + esc(p.rol || "") + (p.rol ? " · " : "") + hechas + " de " + suyas.length + " tareas hechas · entró " + haceCuanto(p.ultima_vez) + "</div></div>" +
-    botonesItem("Equipo", p, p.quitado ? "" : '<button data-codigo="' + p.id + '">🔑 Código nuevo</button><button data-dar-tarea="' + p.id + '">＋ Tarea</button>') + "</div>";
+    botonesItem("Equipo", p, p.quitado ? "" : (planFases.length ? '<button data-plan="' + p.id + '">📋 Plan de Manitu</button>' : "") + '<button data-codigo="' + p.id + '">🔑 Código nuevo</button><button data-dar-tarea="' + p.id + '">＋ Tarea</button>') + "</div>";
 }
 function pEquipo() {
   const gente = vivos("Equipo");
@@ -535,7 +535,7 @@ function guardarEnCerebro(peticion, textoBien, deshacer) {
   return llamar(peticion).then((r) => {
     $("#contenido").classList.remove("cargando");
     if (!r.ok) { avisar(textoError(r.error)); return r; }
-    datos = r.datos; avisoEquipo = r.aviso || ""; correoAvisos = r.correo || ""; pintarJefe();
+    datos = r.datos; avisoEquipo = r.aviso || ""; correoAvisos = r.correo || ""; planFases = r.plan || []; pintarJefe();
     if (textoBien) avisar(textoBien, deshacer ? () => deshacer(r) : null);
     return r;
   }).catch(() => { $("#contenido").classList.remove("cargando"); avisar(ERRORES.red); return { ok: false }; });
@@ -565,6 +565,7 @@ $("#contenido").addEventListener("click", (e) => {
     return guardarEnCerebro({ accion: "codigo-nuevo", id: d.codigo }).then((r) => { if (r.ok) mostrarCodigo(nombreDe(d.codigo), r.codigo); });
   }
   if (d.abrir) return window.open(d.abrir, "_blank", "noopener");
+  if (d.plan) return abrirPlan(d.plan);
   if (d.wa) {
     const texto = "¡Hola! 😊 Estoy haciendo un proyecto y me ayudaría mucho tu opinión. Es una encuesta cortita (2 minutos, anónima): " + d.wa + " ¡Gracias!";
     return window.open("https://wa.me/?text=" + encodeURIComponent(texto), "_blank", "noopener");
@@ -604,10 +605,35 @@ function abrirFormulario(tabla, item, valores) {
     llamar({ accion: "guardar", tabla: tabla, id: item ? item.id : undefined, campos: c }).then((r) => {
       form.classList.remove("cargando");
       if (!r.ok) { $("#error-form").textContent = textoError(r.error); return; }
-      velo.remove(); datos = r.datos; avisoEquipo = r.aviso || ""; correoAvisos = r.correo || ""; pintarJefe();
+      velo.remove(); datos = r.datos; avisoEquipo = r.aviso || ""; correoAvisos = r.correo || ""; planFases = r.plan || []; pintarJefe();
       if (r.codigo) mostrarCodigo(c.nombre, r.codigo); else avisar("Guardado ✓");
     }).catch(() => { form.classList.remove("cargando"); $("#error-form").textContent = ERRORES.red; });
   };
+}
+
+// 📋 Plan de Manitu: dar las tareas de cada fase a una persona del equipo, una fase cada vez.
+function abrirPlan(para) {
+  const velo = document.createElement("div");
+  velo.className = "velo";
+  const pintar = () => {
+    const suyas = vivos("Tareas").filter((t) => t.para === para);
+    const titulos = suyas.map((t) => t.titulo);
+    velo.innerHTML = '<div class="ventana"><h2>📋 Plan de Manitu · ' + esc(nombreDe(para)) + '</h2><p class="sub" style="margin:0 0 12px">Dale una fase cuando acabe la anterior. Así no se agobia, y menos con exámenes.</p><div class="lista">' +
+      planFases.map((f) => {
+        const tiene = f.titulos.filter((t) => titulos.indexOf(t) !== -1).length;
+        const hechas = suyas.filter((t) => f.titulos.indexOf(t.titulo) !== -1 && t.estado === "hecha").length;
+        return '<div class="item"><div class="cuerpo"><div class="titulo">Fase ' + f.fase + " · " + esc(f.nombre) + '</div><div class="detalle">' + esc(f.cuando) + " · " + f.titulos.length + " tareas" +
+          (tiene ? " · ya las tiene (" + hechas + " hechas)" : "") + "</div></div>" +
+          (tiene === f.titulos.length ? '<span class="chip verde">dada</span>' : '<div class="acciones"><button data-fase="' + f.fase + '">Darle esta fase</button></div>') + "</div>";
+      }).join("") + '</div><div class="botones"><button class="secundario" data-cerrar>Cerrar</button></div></div>';
+    velo.querySelector("[data-cerrar]").onclick = () => velo.remove();
+    velo.querySelectorAll("[data-fase]").forEach((b) => b.onclick = () => {
+      guardarEnCerebro({ accion: "dar-fase", para: para, fase: Number(b.dataset.fase) }).then((r) => { if (r.ok) { avisar((r.nuevas || 0) + " tareas nuevas para " + nombreDe(para) + " ✓"); pintar(); } });
+    });
+  };
+  document.body.appendChild(velo);
+  velo.onclick = (e) => { if (e.target === velo) velo.remove(); };
+  pintar();
 }
 
 function mostrarCodigo(nombre, codigo) {
