@@ -131,6 +131,18 @@
   .tablon { background: var(--ambar-claro); border-radius: 14px; padding: 12px 14px; margin-bottom: 14px; line-height: 1.5; white-space: pre-line; }
   .tablon b { display: block; font-size: 13px; color: #8A5A0E; }
   .instalar { background: var(--ambar); color: #fff; }
+  .visita { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); width: calc(100% - 32px); max-width: 560px; background: var(--tinta); color: #fff; border-radius: 18px; padding: 16px 18px; z-index: 30; box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+  .visita small { opacity: .7; }
+  .visita h3 { font-size: 18px; margin: 4px 0 6px; }
+  .visita p { margin: 0 0 12px; line-height: 1.5; }
+  .visita .botones { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+  .visita button { color: #fff; padding: 9px 14px; border-radius: 10px; font-weight: 700; }
+  .visita .sig { background: var(--ambar); }
+  .visita .atras { background: rgba(255,255,255,.12); }
+  .visita .fuera { margin-right: auto; opacity: .7; text-decoration: underline; padding-left: 0; }
+  body.en-visita main, body.en-visita .equipo { padding-bottom: 220px; }
+  body.en-visita .rapido { display: none; }
+  .ver-demo { display: block; text-align: center; margin-top: 14px; color: var(--gris); font-size: 15px; }
 
   @media (max-width: 760px) {
     .app { grid-template-columns: 1fr; }
@@ -156,6 +168,7 @@
     <div id="paso-eleccion" class="eleccion">
       <button data-entrar="jefe"><span>👑</span><div>Soy el jefe<small>Entro con mi contraseña</small></div></button>
       <button data-entrar="equipo"><span>🧑‍🔧</span><div>Soy del equipo<small>Entro con mi código de 6 cifras</small></div></button>
+      <a class="ver-demo" href="?demo&amp;visita">👀 Ver una demostración (5 minutos, datos inventados)</a>
     </div>
     <form id="paso-clave" class="oculto">
       <label class="campo"><b id="clave-etiqueta">Contraseña</b><input id="clave" type="password" autocomplete="current-password"></label>
@@ -701,10 +714,54 @@ function instalarApp() {
 }
 if ("serviceWorker" in navigator && location.protocol === "https:" && !MODO_DEMO) navigator.serviceWorker.register("sw.js").catch(() => {});
 
+// ---------- 👀 Visita guiada (solo en el modo de prueba) ----------
+const VISITA = [
+  { ir: "inicio", t: "Esto es el centro de mando", p: "Desde aquí se lleva toda la empresa. De un vistazo: lo que toca hacer, el dinero del mes, los clientes, las encuestas y el equipo." },
+  { ir: "ideas", t: "💡 Las ideas", p: "Cada idea pasa por pasos: idea → lienzo → marca → prototipo → presentación → probarla con clientes → venderla. La barra enseña por dónde va cada una." },
+  { ir: "tareas", t: "✅ Las tareas", p: "Cada tarea tiene prioridad (principal, secundaria, terciaria) y se le da a alguien del equipo, explicando para qué sirve y cómo hacerla." },
+  { ir: "clientes", t: "🤝 Los clientes", p: "Los clientes de servicios (trabajos que se hacen a mano) y los de las apps, por separado, y en qué punto está cada uno." },
+  { ir: "dinero", t: "💶 El dinero", p: "Todo lo que entra y lo que sale, aunque sean 2 €. Así se sabe si de verdad se gana dinero." },
+  { ir: "encuestas", t: "📋 Las encuestas", p: "Antes de construir nada, se pregunta a gente real. Las respuestas se cuentan solas, y con un botón se manda la encuesta por WhatsApp." },
+  { equipo: true, t: "🧑‍🔧 Y así lo ve alguien del equipo", p: "Entra con su código y solo ve SUS tareas, explicadas. Cuando acaba, pulsa «✅ Hecha» y cuenta lo que ha visto. Nada de dinero ni clientes." },
+  { equipo: true, fin: true, t: "Eso es todo 🙌", p: "Lo que más falta ahora son personas que prueben las cosas y den su opinión sincera. ¿Te apuntas?" }
+];
+let pasoVisita = -1;
+function pintarVisita() {
+  let caja = $(".visita");
+  if (pasoVisita < 0) { if (caja) caja.remove(); document.body.classList.remove("en-visita"); return; }
+  document.body.classList.add("en-visita");
+  const paso = VISITA[pasoVisita];
+  const mostrar = () => {
+    if (!caja) { caja = document.createElement("div"); caja.className = "visita"; document.body.appendChild(caja); }
+    caja.innerHTML = "<small>" + (pasoVisita + 1) + " de " + VISITA.length + "</small><h3>" + esc(paso.t) + "</h3><p>" + esc(paso.p) + '</p><div class="botones"><button class="fuera" data-visita="salir">Salir</button>' +
+      (pasoVisita > 0 ? '<button class="atras" data-visita="atras">← Atrás</button>' : "") +
+      '<button class="sig" data-visita="' + (paso.fin ? "salir" : "sig") + '">' + (paso.fin ? "Terminar" : "Siguiente →") + "</button></div>";
+  };
+  if (paso.equipo) {
+    if (!equipoDatos || sesion.como !== "equipo") {
+      sesion = { como: "equipo", secreto: "123456" };
+      return llamar({}).then((r) => { datos = null; $("#jefe").classList.add("oculto"); recibir(r); mostrar(); });
+    }
+  } else if (!datos || sesion.como !== "jefe") {
+    sesion = { como: "jefe", secreto: "demo" };
+    return llamar({}).then((r) => { equipoDatos = null; $("#equipo").classList.add("oculto"); apartado = paso.ir; recibir(r); mostrar(); });
+  } else { apartado = paso.ir; pintarJefe(); }
+  window.scrollTo(0, 0);
+  mostrar();
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-visita]"); if (!b) return;
+  const a = b.dataset.visita;
+  if (a === "salir") { pasoVisita = -1; pintarVisita(); location.href = location.pathname; return; }
+  pasoVisita += a === "sig" ? 1 : -1; pintarVisita();
+});
+
 // ---------- Arranque ----------
 if (MODO_DEMO) $("#demo").classList.remove("oculto");
 const guardada = leerGuardada();
-if (guardada && guardada.secreto) {
+if (MODO_DEMO && /[?&]visita\b/.test(location.search)) {
+  pasoVisita = 0; pintarVisita();
+} else if (guardada && guardada.secreto) {
   sesion = guardada;
   llamar({}).then((r) => { if (r.ok) recibir(r); else { guardarSesion(null); sesion = null; } }).catch(() => { sesion = null; });
 }
